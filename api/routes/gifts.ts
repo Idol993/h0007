@@ -29,7 +29,7 @@ router.get('/requests', authMiddleware, (req: AuthRequest, res) => {
   const { itemId } = req.query;
 
   let requests = db.giftRequests.filter(
-    r => r.requesterId === userId
+    r => r.requesterId === userId || db.items.find(i => i.id === r.itemId)?.ownerId === userId
   );
 
   if (itemId) {

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Heart, MapPin, Clock, RefreshCw, Gift } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Item } from '../../shared/types';
 import { conditionLabel, conditionColor, timeAgo } from '@/utils';
 import { itemsAPI } from '@/api';
@@ -16,6 +16,22 @@ const ItemCard = ({ item }: ItemCardProps) => {
   const { showToastMessage } = useUIStore();
   const [isFavorite, setIsFavorite] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [checkingFavorite, setCheckingFavorite] = useState(false);
+
+  useEffect(() => {
+    if (isAuthenticated && !checkingFavorite) {
+      checkFavoriteStatus();
+    }
+  }, [isAuthenticated, item.id]);
+
+  const checkFavoriteStatus = async () => {
+    setCheckingFavorite(true);
+    try {
+      const result = await itemsAPI.checkFavorite(item.id);
+      setIsFavorite(result.isFavorite);
+    } catch {}
+    setCheckingFavorite(false);
+  };
 
   const handleFavorite = async (e: React.MouseEvent) => {
     e.preventDefault();

@@ -166,24 +166,4 @@ router.post('/complaints/:id/handle', (req: AuthRequest, res) => {
   res.json(complaint);
 });
 
-router.post('/complaints', authMiddleware, (req: AuthRequest, res) => {
-  const { reportedUserId, itemId, type, description } = req.body;
-  const userId = req.userId!;
-
-  const id = db.nextComplaintId++;
-  const complaint: Complaint = {
-    id,
-    reporterId: userId,
-    reportedUserId,
-    itemId,
-    type,
-    description,
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  };
-
-  db.complaints.unshift(complaint);
-  res.status(201).json(complaint);
-});
-
 export default router;

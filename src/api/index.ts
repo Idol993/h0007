@@ -195,8 +195,8 @@ export const adminAPI = {
     method: 'POST',
     body: JSON.stringify({ result }),
   }),
-  createComplaint: (data: Partial<Complaint> & { reportedUserId: number; type: string; description: string }) =>
-    request<Complaint>('/admin/complaints', {
+  createComplaint: (itemId: number, data: { type: string; description: string }) =>
+    request<Complaint>(`/items/${itemId}/complaint`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),

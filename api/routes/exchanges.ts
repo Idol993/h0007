@@ -234,14 +234,12 @@ router.post('/:id/complete', authMiddleware, (req: AuthRequest, res) => {
   }
 
   if (exchange.requesterId === userId) {
-    exchange.requesterRating = exchange.requesterRating || 0;
+    exchange.requesterCompleted = true;
   } else {
-    exchange.ownerRating = exchange.ownerRating || 0;
+    exchange.ownerCompleted = true;
   }
 
-  const bothConfirmed = 
-    (exchange.requesterId === userId || exchange.requesterRating !== undefined) &&
-    (exchange.ownerId === userId || exchange.ownerRating !== undefined);
+  const bothConfirmed = exchange.requesterCompleted && exchange.ownerCompleted;
 
   if (bothConfirmed) {
     exchange.status = 'completed';
@@ -251,16 +249,31 @@ router.post('/:id/complete', authMiddleware, (req: AuthRequest, res) => {
     if (item) {
       item.status = 'exchanged';
     }
-  }
 
-  const otherUserId = exchange.requesterId === userId ? exchange.ownerId : exchange.requesterId;
-  addMessage(
-    otherUserId,
-    'exchange',
-    '对方已确认完成交换',
-    '请确认并进行信用评价。',
-    id
-  );
+    addMessage(
+      exchange.requesterId,
+      'review',
+      '交换已完成',
+      '请为对方进行信用评价。',
+      id
+    );
+    addMessage(
+      exchange.ownerId,
+      'review',
+      '交换已完成',
+      '请为对方进行信用评价。',
+      id
+    );
+  } else {
+    const otherUserId = exchange.requesterId === userId ? exchange.ownerId : exchange.requesterId;
+    addMessage(
+      otherUserId,
+      'exchange',
+      '对方已确认完成交换',
+      '请确认完成并进行信用评价。',
+      id
+    );
+  }
 
   res.json(exchange);
 });

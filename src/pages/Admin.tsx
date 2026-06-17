@@ -563,16 +563,20 @@ const AdminUsers = () => {
 const AdminComplaints = () => {
   const [complaints, setComplaints] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [selectedComplaint, setSelectedComplaint] = useState<any>(null);
+  const [handleResult, setHandleResult] = useState('');
   const { showToastMessage } = useUIStore();
 
   useEffect(() => {
     fetchComplaints();
-  }, []);
+  }, [filterStatus]);
 
   const fetchComplaints = async () => {
     setLoading(true);
     try {
-      const data = await adminAPI.getComplaints(1, 20);
+      const status = filterStatus === 'all' ? undefined : filterStatus;
+      const data = await adminAPI.getComplaints(1, 50, status);
       setComplaints(data.list);
     } catch (err: any) {
       showToastMessage(err.message || '加载失败', 'error');
@@ -582,20 +586,47 @@ const AdminComplaints = () => {
   };
 
   const handleHandle = async (id: number) => {
-    const result = prompt('请输入处理结果：');
-    if (!result) return;
+    if (!handleResult.trim()) {
+      showToastMessage('请输入处理结果', 'error');
+      return;
+    }
     try {
-      await adminAPI.handleComplaint(id, result);
+      await adminAPI.handleComplaint(id, handleResult);
       showToastMessage('已处理', 'success');
+      setSelectedComplaint(null);
+      setHandleResult('');
       fetchComplaints();
     } catch (err: any) {
       showToastMessage(err.message || '操作失败', 'error');
     }
   };
 
+  const filterTabs = [
+    { value: 'all', label: '全部' },
+    { value: 'pending', label: '待处理' },
+    { value: 'handled', label: '已处理' },
+  ];
+
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">投诉管理</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">投诉管理</h1>
+        <div className="flex bg-gray-100 rounded-lg p-1">
+          {filterTabs.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setFilterStatus(tab.value)}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                filterStatus === tab.value
+                  ? 'bg-white text-primary-600 shadow'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="bg-white rounded-xl shadow-card overflow-hidden">
         {loading ? (
@@ -603,63 +634,201 @@ const AdminComplaints = () => {
         ) : complaints.length === 0 ? (
           <div className="p-12 text-center">
             <div className="text-4xl mb-3">✅</div>
-            <p className="text-gray-500">暂无待处理投诉</p>
+            <p className="text-gray-500">暂无投诉记录</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
-            {complaints.map((complaint) => (
-              <div key={complaint.id} className="p-6">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center space-x-3">
-                    <img
-                      src={complaint.reporter?.avatar}
-                      alt=""
-                      className="w-8 h-8 rounded-full bg-gray-100"
-                    />
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        {complaint.reporter?.username} 投诉了 {complaint.reportedUser?.username}
-                      </p>
-                      <p className="text-xs text-gray-500">{timeAgo(complaint.createdAt)}</p>
-                    </div>
-                  </div>
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                    complaint.status === 'pending'
-                      ? 'bg-yellow-100 text-yellow-700'
-                      : 'bg-green-100 text-green-700'
-                  }`}>
-                    {complaint.status === 'pending' ? '待处理' : '已处理'}
-                  </span>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-4 mb-3">
-                  <p className="text-sm font-medium text-gray-700 mb-1">
-                    投诉类型：{complaint.type}
-                  </p>
-                  <p className="text-sm text-gray-600">{complaint.description}</p>
-                </div>
-                {complaint.handleResult && (
-                  <div className="bg-blue-50 rounded-lg p-3 mb-3">
-                    <p className="text-sm text-blue-700">
-                      <span className="font-medium">处理结果：</span>
-                      {complaint.handleResult}
-                    </p>
-                  </div>
-                )}
-                {complaint.status === 'pending' && (
-                  <div className="flex justify-end">
-                    <button
-                      onClick={() => handleHandle(complaint.id)}
-                      className="bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                    >
-                      处理投诉
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">投诉人</th>
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">被投诉人</th>
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">关联物品</th>
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">类型</th>
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">时间</th>
+                  <th className="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {complaints.map((complaint) => (
+                  <tr key={complaint.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center">
+                        <img
+                          src={complaint.reporter?.avatar}
+                          alt=""
+                          className="w-8 h-8 rounded-full bg-gray-100"
+                        />
+                        <span className="ml-2 text-sm font-medium text-gray-900">
+                          {complaint.reporter?.username}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center">
+                        <img
+                          src={complaint.reportedUser?.avatar}
+                          alt=""
+                          className="w-8 h-8 rounded-full bg-gray-100"
+                        />
+                        <span className="ml-2 text-sm text-gray-900">
+                          {complaint.reportedUser?.username}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      {complaint.item && (
+                        <div className="flex items-center">
+                          <img
+                            src={complaint.item.images?.[0]}
+                            alt=""
+                            className="w-10 h-10 rounded-lg object-cover bg-gray-100"
+                          />
+                          <span className="ml-2 text-sm text-gray-900 max-w-[150px] truncate">
+                            {complaint.item.title}
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-sm text-gray-700">{complaint.type}</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                        complaint.status === 'pending'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-green-100 text-green-700'
+                      }`}>
+                        {complaint.status === 'pending' ? '待处理' : '已处理'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {timeAgo(complaint.createdAt)}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={() => {
+                          setSelectedComplaint(complaint);
+                          setHandleResult('');
+                        }}
+                        className="p-2 text-gray-400 hover:text-primary-500 transition-colors"
+                        title="查看详情"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
+
+      {selectedComplaint && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">投诉详情</h3>
+              <button
+                onClick={() => {
+                  setSelectedComplaint(null);
+                  setHandleResult('');
+                }}
+                className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">投诉人</p>
+                  <div className="flex items-center">
+                    <img src={selectedComplaint.reporter?.avatar} alt="" className="w-8 h-8 rounded-full" />
+                    <span className="ml-2 font-medium">{selectedComplaint.reporter?.username}</span>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">被投诉人</p>
+                  <div className="flex items-center">
+                    <img src={selectedComplaint.reportedUser?.avatar} alt="" className="w-8 h-8 rounded-full" />
+                    <span className="ml-2 font-medium">{selectedComplaint.reportedUser?.username}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs text-gray-500 mb-1">关联物品</p>
+                {selectedComplaint.item && (
+                  <Link
+                    to={`/item/${selectedComplaint.item.id}`}
+                    target="_blank"
+                    className="flex items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    <img src={selectedComplaint.item.images?.[0]} alt="" className="w-12 h-12 rounded-lg object-cover" />
+                    <div className="ml-3 flex-1">
+                      <p className="font-medium text-gray-900">{selectedComplaint.item.title}</p>
+                      <p className="text-xs text-gray-500">点击查看物品详情</p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                  </Link>
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs text-gray-500 mb-1">投诉类型</p>
+                <p className="font-medium text-gray-900">{selectedComplaint.type}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-gray-500 mb-1">投诉原因</p>
+                <p className="text-gray-700 bg-gray-50 rounded-lg p-3">{selectedComplaint.description}</p>
+              </div>
+
+              {selectedComplaint.handleResult && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">处理结果</p>
+                  <p className="text-gray-700 bg-blue-50 rounded-lg p-3">{selectedComplaint.handleResult}</p>
+                </div>
+              )}
+
+              {selectedComplaint.status === 'pending' && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">处理结果</p>
+                  <textarea
+                    value={handleResult}
+                    onChange={(e) => setHandleResult(e.target.value)}
+                    placeholder="请输入处理结果..."
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+                    rows={3}
+                  />
+                </div>
+              )}
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setSelectedComplaint(null);
+                  setHandleResult('');
+                }}
+                className="px-5 py-2.5 border border-gray-200 rounded-xl text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+              >
+                关闭
+              </button>
+              {selectedComplaint.status === 'pending' && (
+                <button
+                  onClick={() => handleHandle(selectedComplaint.id)}
+                  className="px-5 py-2.5 bg-primary-500 hover:bg-primary-600 text-white rounded-xl font-medium transition-colors"
+                >
+                  确认处理
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -62,6 +62,8 @@ export interface Exchange {
   offeredItemIds?: number[];
   meetTime?: string;
   meetLocation?: string;
+  requesterCompleted?: boolean;
+  ownerCompleted?: boolean;
   requesterRating?: number;
   requesterComment?: string;
   ownerRating?: number;

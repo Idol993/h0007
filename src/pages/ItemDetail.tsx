@@ -131,9 +131,7 @@ const ItemDetail = () => {
     }
     setSubmitting(true);
     try {
-      await adminAPI.createComplaint({
-        reportedUserId: item!.ownerId,
-        itemId: parseInt(id!),
+      await adminAPI.createComplaint(parseInt(id!), {
         type: complaintType,
         description: complaintDescription,
       });

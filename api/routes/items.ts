@@ -8,6 +8,7 @@ import type {
   CreateItemRequest,
   PaginatedResponse,
   Favorite,
+  Complaint,
 } from '../../../shared/types';
 
 const router = Router();
@@ -256,6 +257,38 @@ router.get('/:id/favorite', authMiddleware, (req: AuthRequest, res) => {
   );
 
   res.json({ isFavorite });
+});
+
+router.post('/:id/complaint', authMiddleware, (req: AuthRequest, res) => {
+  const itemId = parseInt(req.params.id);
+  const { type, description } = req.body;
+  const userId = req.userId!;
+
+  const item = db.items.find(i => i.id === itemId);
+  if (!item) {
+    res.status(404).json({ error: '物品不存在' });
+    return;
+  }
+
+  if (!type || !description?.trim()) {
+    res.status(400).json({ error: '请填写投诉类型和原因' });
+    return;
+  }
+
+  const id = db.nextComplaintId++;
+  const complaint: Complaint = {
+    id,
+    reporterId: userId,
+    reportedUserId: item.ownerId,
+    itemId,
+    type,
+    description: description.trim(),
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+
+  db.complaints.unshift(complaint);
+  res.status(201).json(complaint);
 });
 
 export default router;
