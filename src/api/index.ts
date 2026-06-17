@@ -126,7 +126,7 @@ export const giftsAPI = {
     return request<GiftRequest[]>(`/gifts/requests${query}`);
   },
   getMyRequests: () => request<GiftRequest[]>('/gifts/requests/my'),
-  createRequest: (data: CreateGiftRequest) => request<GiftRequest>('/gifts/request', {
+  createRequest: (data: CreateGiftRequest) => request<GiftRequest>('/gifts/requests', {
     method: 'POST',
     body: JSON.stringify(data),
   }),

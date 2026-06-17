@@ -25,6 +25,20 @@ export type TimelineEventType =
   | 'gift_expired'
   | 'gift_completed';
 
+export type CreditChangeType = 'exchange_complete' | 'review' | 'no_show' | 'complaint' | 'admin_adjust' | 'gift_complete';
+
+export interface CreditLog {
+  id: number;
+  userId: number;
+  type: CreditChangeType;
+  change: number;
+  balance: number;
+  reason: string;
+  relatedId?: number;
+  operatorId?: number;
+  createdAt: string;
+}
+
 export type MessageType = 'system' | 'exchange' | 'gift' | 'review';
 
 export type ComplaintStatus = 'pending' | 'handled' | 'rejected';

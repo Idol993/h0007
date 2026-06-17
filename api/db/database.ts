@@ -9,6 +9,7 @@ import type {
   Complaint,
   TimelineEvent,
   Review,
+  CreditLog,
   ItemType,
   ItemCondition,
 } from '../../shared/types';
@@ -43,6 +44,7 @@ export interface Database {
   complaints: Complaint[];
   timelineEvents: TimelineEvent[];
   reviews: Review[];
+  creditLogs: CreditLog[];
   nextUserId: number;
   nextItemId: number;
   nextExchangeId: number;
@@ -52,6 +54,7 @@ export interface Database {
   nextComplaintId: number;
   nextTimelineEventId: number;
   nextReviewId: number;
+  nextCreditLogId: number;
 }
 
 const now = new Date().toISOString();
