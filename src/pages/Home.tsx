@@ -131,6 +131,7 @@ const Home = () => {
                 >
                   <option value="latest">最新发布</option>
                   <option value="popular">最多浏览</option>
+                  <option value="distance">距离最近</option>
                 </select>
               </div>
               <span className="text-sm text-gray-500">共 {total} 件物品</span>

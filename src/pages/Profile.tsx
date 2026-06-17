@@ -3,9 +3,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import Navbar from '@/components/Navbar';
 import Toast from '@/components/Toast';
 import ItemCard from '@/components/ItemCard';
-import { usersAPI } from '@/api';
+import { usersAPI, exchangesAPI } from '@/api';
 import { useAuthStore } from '@/store';
-import type { User, Item } from '../../shared/types';
+import type { User, Item, Exchange } from '../../shared/types';
 import {
   User as UserIcon,
   Package,
@@ -18,7 +18,9 @@ import {
   AlertTriangle,
   MapPin,
   Calendar,
+  Gift,
 } from 'lucide-react';
+import { exchangeStatusLabel, exchangeStatusColor, timeAgo } from '@/utils';
 
 const Profile = () => {
   const navigate = useNavigate();
@@ -27,6 +29,8 @@ const Profile = () => {
   const [profileUser, setProfileUser] = useState<(User & { itemCount?: number; exchangeCount?: number }) | null>(null);
   const [activeTab, setActiveTab] = useState('items');
   const [userItems, setUserItems] = useState<Item[]>([]);
+  const [exchanges, setExchanges] = useState<Exchange[]>([]);
+  const [favorites, setFavorites] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
 
   const isOwnProfile = !id || (currentUser && currentUser.id === parseInt(id));
@@ -46,7 +50,13 @@ const Profile = () => {
     if (userId && activeTab === 'items') {
       fetchUserItems();
     }
-  }, [userId, activeTab]);
+    if (userId && activeTab === 'exchanges' && isOwnProfile) {
+      fetchExchanges();
+    }
+    if (activeTab === 'favorites' && isOwnProfile) {
+      fetchFavorites();
+    }
+  }, [userId, activeTab, isOwnProfile]);
 
   const fetchProfile = async () => {
     setLoading(true);
@@ -66,6 +76,24 @@ const Profile = () => {
       setUserItems(data);
     } catch (err) {
       console.error('Failed to fetch user items:', err);
+    }
+  };
+
+  const fetchExchanges = async () => {
+    try {
+      const data = await exchangesAPI.getList();
+      setExchanges(data);
+    } catch (err) {
+      console.error('Failed to fetch exchanges:', err);
+    }
+  };
+
+  const fetchFavorites = async () => {
+    try {
+      const data = await usersAPI.getFavorites();
+      setFavorites(data);
+    } catch (err) {
+      console.error('Failed to fetch favorites:', err);
     }
   };
 
@@ -227,23 +255,90 @@ const Profile = () => {
               )}
 
               {activeTab === 'exchanges' && (
-                <div className="text-center py-12">
-                  <div className="text-5xl mb-3">🔄</div>
-                  <p className="text-gray-500">暂无交换记录</p>
-                </div>
+                <>
+                  {exchanges.length === 0 ? (
+                    <div className="text-center py-12">
+                      <div className="text-5xl mb-3">🔄</div>
+                      <p className="text-gray-500">暂无交换记录</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {exchanges.map((exchange) => {
+                        const isRequester = exchange.requesterId === currentUser?.id;
+                        const otherUser = isRequester ? exchange.owner : exchange.requester;
+                        return (
+                          <div
+                            key={exchange.id}
+                            className="border border-gray-100 rounded-xl p-4 hover:border-primary-200 transition-colors"
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center space-x-3">
+                                <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden">
+                                  {exchange.item?.images?.[0] && (
+                                    <img src={exchange.item.images[0]} alt="" className="w-full h-full object-cover" />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="font-medium text-gray-900">{exchange.item?.title}</div>
+                                  <div className="text-sm text-gray-500 flex items-center mt-1">
+                                    <UserIcon className="w-3 h-3 mr-1" />
+                                    {isRequester ? '向' : '来自'} {otherUser?.username}
+                                    <span className="mx-2">·</span>
+                                    {timeAgo(exchange.createdAt)}
+                                  </div>
+                                </div>
+                              </div>
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${exchangeStatusColor[exchange.status]}`}>
+                                {exchangeStatusLabel[exchange.status]}
+                              </span>
+                            </div>
+                            {exchange.meetLocation && (
+                              <div className="text-sm text-gray-500 flex items-center">
+                                <MapPin className="w-4 h-4 mr-1" />
+                                {exchange.meetLocation}
+                                {exchange.meetTime && (
+                                  <>
+                                    <span className="mx-2">·</span>
+                                    <Calendar className="w-4 h-4 mr-1" />
+                                    {timeAgo(exchange.meetTime)}
+                                  </>
+                                )}
+                              </div>
+                            )}
+                            {exchange.message && (
+                              <div className="mt-3 text-sm text-gray-600 bg-gray-50 rounded-lg p-3">
+                                {exchange.message}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               )}
 
               {activeTab === 'favorites' && (
-                <div className="text-center py-12">
-                  <div className="text-5xl mb-3">❤️</div>
-                  <p className="text-gray-500">暂无收藏的物品</p>
-                  <Link
-                    to="/"
-                    className="inline-block mt-4 text-primary-600 hover:text-primary-700 font-medium"
-                  >
-                    去逛逛 →
-                  </Link>
-                </div>
+                <>
+                  {favorites.length === 0 ? (
+                    <div className="text-center py-12">
+                      <div className="text-5xl mb-3">❤️</div>
+                      <p className="text-gray-500">暂无收藏的物品</p>
+                      <Link
+                        to="/"
+                        className="inline-block mt-4 text-primary-600 hover:text-primary-700 font-medium"
+                      >
+                        去逛逛 →
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {favorites.map((item) => (
+                        <ItemCard key={item.id} item={item} />
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
 
               {activeTab === 'settings' && (

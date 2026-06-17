@@ -45,6 +45,22 @@ router.get('/', (req, res) => {
 
   if (sort === 'latest') {
     items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  } else if (sort === 'popular') {
+    items.sort((a, b) => b.viewCount - a.viewCount);
+  } else if (sort === 'distance') {
+    const userLat = 39.95;
+    const userLon = 116.35;
+    items.sort((a, b) => {
+      const distA = a.latitude && a.longitude ? calculateDistance(userLat, userLon, a.latitude, a.longitude) : 9999;
+      const distB = b.latitude && b.longitude ? calculateDistance(userLat, userLon, b.latitude, b.longitude) : 9999;
+      return distA - distB;
+    });
+    items = items.map(item => {
+      if (item.latitude && item.longitude) {
+        return { ...item, distance: calculateDistance(userLat, userLon, item.latitude, item.longitude) };
+      }
+      return item;
+    });
   }
 
   const total = items.length;
@@ -71,14 +87,14 @@ router.get('/', (req, res) => {
 
 router.get('/categories', (_req, res) => {
   const categories = [
-    { id: 'books', name: '图书文具', icon: 'book-open' },
-    { id: 'electronics', name: '数码产品', icon: 'smartphone' },
-    { id: 'home', name: '家居用品', icon: 'home' },
-    { id: 'clothing', name: '服装鞋帽', icon: 'shirt' },
-    { id: 'baby', name: '母婴用品', icon: 'baby' },
-    { id: 'toys', name: '玩具游戏', icon: 'gamepad-2' },
-    { id: 'sports', name: '运动户外', icon: 'dumbbell' },
-    { id: 'appliances', name: '家用电器', icon: 'tv' },
+    { id: '图书文具', name: '图书文具', icon: 'book-open' },
+    { id: '数码产品', name: '数码产品', icon: 'smartphone' },
+    { id: '家居用品', name: '家居用品', icon: 'home' },
+    { id: '服装鞋帽', name: '服装鞋帽', icon: 'shirt' },
+    { id: '母婴用品', name: '母婴用品', icon: 'baby' },
+    { id: '玩具游戏', name: '玩具游戏', icon: 'gamepad-2' },
+    { id: '运动户外', name: '运动户外', icon: 'dumbbell' },
+    { id: '家用电器', name: '家用电器', icon: 'tv' },
   ];
   res.json(categories);
 });

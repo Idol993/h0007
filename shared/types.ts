@@ -150,7 +150,7 @@ export interface ItemQueryParams {
   pageSize?: number;
   category?: string;
   type?: ItemType;
-  sort?: 'latest' | 'price' | 'distance';
+  sort?: 'latest' | 'popular' | 'distance';
   keyword?: string;
   condition?: ItemCondition;
 }

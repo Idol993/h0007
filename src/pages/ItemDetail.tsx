@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import Navbar from '@/components/Navbar';
 import Toast from '@/components/Toast';
-import { itemsAPI, exchangesAPI, giftsAPI } from '@/api';
+import { itemsAPI, exchangesAPI, giftsAPI, adminAPI } from '@/api';
 import { useAuthStore, useUIStore } from '@/store';
 import type { Item } from '../../shared/types';
 import {
@@ -33,7 +33,10 @@ const ItemDetail = () => {
   const [isFavorite, setIsFavorite] = useState(false);
   const [showExchangeModal, setShowExchangeModal] = useState(false);
   const [showGiftModal, setShowGiftModal] = useState(false);
+  const [showComplaintModal, setShowComplaintModal] = useState(false);
   const [message, setMessage] = useState('');
+  const [complaintType, setComplaintType] = useState('物品违规');
+  const [complaintDescription, setComplaintDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -112,6 +115,34 @@ const ItemDetail = () => {
       setMessage('');
     } catch (err: any) {
       showToastMessage(err.message || '申请失败', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleComplaint = async () => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    if (!complaintDescription.trim()) {
+      showToastMessage('请填写投诉原因', 'error');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await adminAPI.createComplaint({
+        reportedUserId: item!.ownerId,
+        itemId: parseInt(id!),
+        type: complaintType,
+        description: complaintDescription,
+      });
+      showToastMessage('投诉已提交，管理员会尽快处理', 'success');
+      setShowComplaintModal(false);
+      setComplaintType('物品违规');
+      setComplaintDescription('');
+    } catch (err: any) {
+      showToastMessage(err.message || '投诉提交失败', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -358,7 +389,16 @@ const ItemDetail = () => {
                     </button>
                   </div>
 
-                  <button className="w-full py-2 text-sm text-gray-500 hover:text-red-500 flex items-center justify-center transition-colors">
+                  <button
+                    onClick={() => {
+                      if (!isAuthenticated) {
+                        navigate('/login');
+                        return;
+                      }
+                      setShowComplaintModal(true);
+                    }}
+                    className="w-full py-2 text-sm text-gray-500 hover:text-red-500 flex items-center justify-center transition-colors"
+                  >
                     <AlertTriangle className="w-4 h-4 mr-1" />
                     举报物品
                   </button>
@@ -435,6 +475,58 @@ const ItemDetail = () => {
                 className="flex-1 bg-accent-500 hover:bg-accent-600 text-white py-3 rounded-xl font-medium transition-colors disabled:opacity-50"
               >
                 {submitting ? '提交中...' : '确认领取'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showComplaintModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 animate-slide-up">
+            <h3 className="text-xl font-semibold text-gray-900 mb-4">举报物品</h3>
+            <p className="text-gray-600 text-sm mb-4">
+              请选择举报类型并详细描述问题，管理员会尽快处理。
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">举报类型</label>
+                <select
+                  value={complaintType}
+                  onChange={(e) => setComplaintType(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="物品违规">物品违规</option>
+                  <option value="虚假信息">虚假信息</option>
+                  <option value="违禁物品">违禁物品</option>
+                  <option value="放鸽子">放鸽子</option>
+                  <option value="其他">其他</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">投诉原因</label>
+                <textarea
+                  value={complaintDescription}
+                  onChange={(e) => setComplaintDescription(e.target.value)}
+                  placeholder="请详细描述投诉原因..."
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+                  rows={4}
+                />
+              </div>
+            </div>
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => setShowComplaintModal(false)}
+                className="flex-1 py-3 border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 font-medium transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleComplaint}
+                disabled={submitting}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl font-medium transition-colors disabled:opacity-50"
+              >
+                {submitting ? '提交中...' : '提交投诉'}
               </button>
             </div>
           </div>
