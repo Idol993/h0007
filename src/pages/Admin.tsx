@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { useAuthStore, useUIStore } from '@/store';
 import { adminAPI } from '@/api';
-import type { AdminStats, Item, User, Complaint } from '../../shared/types';
+import type { AdminStats, Item, User, Complaint, TimelineEvent } from '../../shared/types';
 import {
   LayoutDashboard,
   Package,
@@ -19,8 +19,119 @@ import {
   Menu,
   X,
   ChevronRight,
+  Clock,
+  MapPin,
+  RefreshCw,
+  Gift,
+  Star,
+  ArrowRight,
+  FileText,
+  MessageSquare,
 } from 'lucide-react';
-import { timeAgo } from '@/utils';
+import { timeAgo, exchangeStatusLabel, exchangeStatusColor, giftStatusLabel, giftStatusColor } from '@/utils';
+
+const timelineIconMap: Record<string, any> = {
+  exchange_created: RefreshCw,
+  exchange_confirmed: CheckCircle,
+  exchange_rejected: X,
+  exchange_negotiated: MessageSquare,
+  exchange_completed_one: Clock,
+  exchange_completed_both: CheckCircle,
+  exchange_reviewed: Star,
+  exchange_no_show: AlertTriangle,
+  gift_created: Gift,
+  gift_confirmed: CheckCircle,
+  gift_cancelled: X,
+  gift_expired: AlertTriangle,
+  gift_completed: CheckCircle,
+};
+
+const timelineLabelMap: Record<string, string> = {
+  exchange_created: '发起交换申请',
+  exchange_confirmed: '物主确认交换',
+  exchange_rejected: '物主拒绝交换',
+  exchange_negotiated: '更新见面约定',
+  exchange_completed_one: '一方确认完成',
+  exchange_completed_both: '双方确认完成',
+  exchange_reviewed: '提交信用评价',
+  exchange_no_show: '标记放鸽子',
+  gift_created: '提交领取申请',
+  gift_confirmed: '物主确认赠送',
+  gift_cancelled: '申请人取消',
+  gift_expired: '申请已失效',
+  gift_completed: '领取完成',
+};
+
+const renderTimelineItemAdmin = (event: TimelineEvent, isLast: boolean) => {
+  const Icon = timelineIconMap[event.type] || FileText;
+  const label = timelineLabelMap[event.type] || '操作';
+  const operatorName = (event as any).operator?.username || '系统';
+
+  return (
+    <div key={event.id} className="relative pl-8 pb-4">
+      {!isLast && (
+        <div className="absolute left-[13px] top-8 bottom-0 w-0.5 bg-gray-200" />
+      )}
+      <div className="absolute left-0 top-1 w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center">
+        <Icon className="w-3.5 h-3.5 text-primary-600" />
+      </div>
+      <div className="bg-gray-50 rounded-lg p-3 ml-1">
+        <div className="flex items-center justify-between mb-1">
+          <span className="font-medium text-sm text-gray-900">{label}</span>
+          <span className="text-xs text-gray-400">{timeAgo(event.createdAt)}</span>
+        </div>
+        <div className="text-xs text-gray-500 mb-1">操作人：{operatorName}</div>
+        {event.type === 'exchange_created' && event.content && (
+          <div className="text-sm text-gray-600 bg-white rounded p-2 mt-1">申请留言：{event.content}</div>
+        )}
+        {event.type === 'exchange_negotiated' && (
+          <div className="mt-1 space-y-1 text-sm">
+            {event.oldMeetTime !== event.newMeetTime && (
+              <div className="flex items-center text-gray-600">
+                <Clock className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                {event.oldMeetTime && <span className="text-gray-400 line-through mr-1">{event.oldMeetTime}</span>}
+                {event.oldMeetTime && <ArrowRight className="w-3 h-3 mx-1 text-gray-400" />}
+                <span className="text-primary-600 font-medium">{event.newMeetTime}</span>
+              </div>
+            )}
+            {event.oldMeetLocation !== event.newMeetLocation && (
+              <div className="flex items-center text-gray-600">
+                <MapPin className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                {event.oldMeetLocation && <span className="text-gray-400 line-through mr-1">{event.oldMeetLocation}</span>}
+                {event.oldMeetLocation && <ArrowRight className="w-3 h-3 mx-1 text-gray-400" />}
+                <span className="text-primary-600 font-medium">{event.newMeetLocation}</span>
+              </div>
+            )}
+          </div>
+        )}
+        {event.type === 'exchange_reviewed' && (
+          <div className="mt-1 space-y-1">
+            <div className="flex items-center text-yellow-500 text-sm">
+              {'★'.repeat(event.rating || 0)}
+              <span className="text-gray-400 ml-2">{'★'.repeat(5 - (event.rating || 0))}</span>
+            </div>
+            {event.tags && event.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {event.tags.map((t: string) => (
+                  <span key={t} className="text-xs bg-primary-50 text-primary-600 px-2 py-0.5 rounded-full">
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+            {event.comment && <p className="text-sm text-gray-600 bg-white rounded p-2 mt-1">{event.comment}</p>}
+          </div>
+        )}
+        {event.type === 'gift_confirmed' && event.content && (
+          <div className="text-sm text-green-600 font-medium bg-green-50 rounded p-2 mt-1">{event.content}</div>
+        )}
+        {event.type === 'gift_expired' && event.content && (
+          <div className="text-sm text-red-600 bg-red-50 rounded p-2 mt-1">{event.content}</div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const AdminLayout = () => {
   const navigate = useNavigate();
@@ -564,19 +675,23 @@ const AdminComplaints = () => {
   const [complaints, setComplaints] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterType, setFilterType] = useState<string>('all');
+  const [searchKeyword, setSearchKeyword] = useState('');
   const [selectedComplaint, setSelectedComplaint] = useState<any>(null);
   const [handleResult, setHandleResult] = useState('');
+  const [showTimeline, setShowTimeline] = useState<'exchange' | 'gift' | null>(null);
   const { showToastMessage } = useUIStore();
 
   useEffect(() => {
     fetchComplaints();
-  }, [filterStatus]);
+  }, [filterStatus, filterType, searchKeyword]);
 
   const fetchComplaints = async () => {
     setLoading(true);
     try {
       const status = filterStatus === 'all' ? undefined : filterStatus;
-      const data = await adminAPI.getComplaints(1, 50, status);
+      const type = filterType === 'all' ? undefined : filterType;
+      const data = await adminAPI.getComplaints(1, 50, status, type, searchKeyword || undefined);
       setComplaints(data.list);
     } catch (err: any) {
       showToastMessage(err.message || '加载失败', 'error');
@@ -595,6 +710,7 @@ const AdminComplaints = () => {
       showToastMessage('已处理', 'success');
       setSelectedComplaint(null);
       setHandleResult('');
+      setShowTimeline(null);
       fetchComplaints();
     } catch (err: any) {
       showToastMessage(err.message || '操作失败', 'error');
@@ -607,24 +723,54 @@ const AdminComplaints = () => {
     { value: 'handled', label: '已处理' },
   ];
 
+  const typeOptions = [
+    { value: 'all', label: '全部类型' },
+    { value: '物品违规', label: '物品违规' },
+    { value: '虚假信息', label: '虚假信息' },
+    { value: '违禁物品', label: '违禁物品' },
+    { value: '放鸽子', label: '放鸽子' },
+    { value: '其他', label: '其他' },
+  ];
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">投诉管理</h1>
-        <div className="flex bg-gray-100 rounded-lg p-1">
-          {filterTabs.map((tab) => (
-            <button
-              key={tab.value}
-              onClick={() => setFilterStatus(tab.value)}
-              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                filterStatus === tab.value
-                  ? 'bg-white text-primary-600 shadow'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900 mb-4">投诉管理</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex bg-gray-100 rounded-lg p-1">
+            {filterTabs.map((tab) => (
+              <button
+                key={tab.value}
+                onClick={() => setFilterStatus(tab.value)}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  filterStatus === tab.value
+                    ? 'bg-white text-primary-600 shadow'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          >
+            {typeOptions.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              placeholder="搜索投诉人/被投诉人/描述..."
+              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+          </div>
         </div>
       </div>
 
@@ -711,6 +857,7 @@ const AdminComplaints = () => {
                         onClick={() => {
                           setSelectedComplaint(complaint);
                           setHandleResult('');
+                          setShowTimeline(null);
                         }}
                         className="p-2 text-gray-400 hover:text-primary-500 transition-colors"
                         title="查看详情"
@@ -776,6 +923,89 @@ const AdminComplaints = () => {
                   </Link>
                 )}
               </div>
+
+              {(selectedComplaint.relatedExchange || selectedComplaint.relatedGiftRequest) && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-2">履约时间线</p>
+                  <div className="flex bg-gray-100 rounded-lg p-1">
+                    {selectedComplaint.relatedExchange && (
+                      <button
+                        onClick={() => setShowTimeline('exchange')}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${
+                          showTimeline === 'exchange' || !showTimeline
+                            ? 'bg-white text-primary-600 shadow'
+                            : 'text-gray-600'
+                        }`}
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                        交换记录
+                      </button>
+                    )}
+                    {selectedComplaint.relatedGiftRequest && (
+                      <button
+                        onClick={() => setShowTimeline('gift')}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center ${
+                          showTimeline === 'gift'
+                            ? 'bg-white text-primary-600 shadow'
+                            : 'text-gray-600'
+                        }`}
+                      >
+                        <Gift className="w-3.5 h-3.5 mr-1" />
+                        赠送记录
+                      </button>
+                    )}
+                  </div>
+                  {(!showTimeline || showTimeline === 'exchange') && selectedComplaint.relatedExchange && (
+                    <div className="mt-3 border border-gray-100 rounded-xl p-4 max-h-80 overflow-y-auto">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-gray-700">
+                          状态：
+                          <span className={`ml-1 px-2 py-0.5 rounded text-xs ${exchangeStatusColor[selectedComplaint.relatedExchange.status]}`}>
+                            {exchangeStatusLabel[selectedComplaint.relatedExchange.status]}
+                          </span>
+                        </span>
+                        {selectedComplaint.relatedExchange.meetLocation && (
+                          <span className="text-xs text-gray-500 flex items-center">
+                            <MapPin className="w-3 h-3 mr-1" />
+                            {selectedComplaint.relatedExchange.meetLocation}
+                          </span>
+                        )}
+                      </div>
+                      {(selectedComplaint.relatedExchange.timeline || []).length === 0 ? (
+                        <p className="text-center text-gray-400 text-sm py-4">暂无时间线记录</p>
+                      ) : (
+                        (selectedComplaint.relatedExchange.timeline || []).map((e: any, idx: number, arr: any[]) =>
+                          renderTimelineItemAdmin(e, idx === arr.length - 1)
+                        )
+                      )}
+                    </div>
+                  )}
+                  {showTimeline === 'gift' && selectedComplaint.relatedGiftRequest && (
+                    <div className="mt-3 border border-gray-100 rounded-xl p-4 max-h-80 overflow-y-auto">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-gray-700">
+                          状态：
+                          <span className={`ml-1 px-2 py-0.5 rounded text-xs ${giftStatusColor[selectedComplaint.relatedGiftRequest.status]}`}>
+                            {giftStatusLabel[selectedComplaint.relatedGiftRequest.status]}
+                          </span>
+                        </span>
+                        {selectedComplaint.relatedGiftRequest.pickupCode && (
+                          <span className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded font-medium">
+                            领取码：{selectedComplaint.relatedGiftRequest.pickupCode}
+                          </span>
+                        )}
+                      </div>
+                      {(selectedComplaint.relatedGiftRequest.timeline || []).length === 0 ? (
+                        <p className="text-center text-gray-400 text-sm py-4">暂无时间线记录</p>
+                      ) : (
+                        (selectedComplaint.relatedGiftRequest.timeline || []).map((e: any, idx: number, arr: any[]) =>
+                          renderTimelineItemAdmin(e, idx === arr.length - 1)
+                        )
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div>
                 <p className="text-xs text-gray-500 mb-1">投诉类型</p>

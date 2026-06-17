@@ -150,6 +150,7 @@ export const usersAPI = {
   },
   getCredit: (id: number) => request<{ creditScore: number; noShowCount: number; isFrozen: boolean; frozenUntil?: string }>(`/users/${id}/credit`),
   getFavorites: () => request<Item[]>('/users/favorites'),
+  getUserReviews: (id: number) => request<{ list: any[]; total: number; avgRating: number }>(`/users/${id}/reviews`),
 };
 
 export const messagesAPI = {
@@ -186,10 +187,12 @@ export const adminAPI = {
     method: 'POST',
     body: JSON.stringify({ days, reason }),
   }),
-  getComplaints: (page = 1, pageSize = 20, status?: string) => {
+  getComplaints: (page = 1, pageSize = 20, status?: string, type?: string, keyword?: string) => {
     const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
     if (status) query.append('status', status);
-    return request<PaginatedResponse<Complaint & { reporter?: User; reportedUser?: User; item?: Item }>>(`/admin/complaints?${query.toString()}`);
+    if (type) query.append('type', type);
+    if (keyword) query.append('keyword', keyword);
+    return request<PaginatedResponse<Complaint & { reporter?: User; reportedUser?: User; item?: Item; relatedExchange?: any; relatedGiftRequest?: any }>>(`/admin/complaints?${query.toString()}`);
   },
   handleComplaint: (id: number, result: string) => request<Complaint>(`/admin/complaints/${id}/handle`, {
     method: 'POST',

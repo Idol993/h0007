@@ -40,9 +40,10 @@ export const exchangeStatusColor: Record<string, string> = {
 };
 
 export const giftStatusLabel: Record<string, string> = {
-  pending: '待确认',
+  pending: '排队中',
   confirmed: '已确认',
   cancelled: '已取消',
+  expired: '已失效',
   completed: '已完成',
 };
 
@@ -50,6 +51,7 @@ export const giftStatusColor: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
   confirmed: 'bg-green-100 text-green-700',
   cancelled: 'bg-gray-100 text-gray-700',
+  expired: 'bg-red-100 text-red-700',
   completed: 'bg-blue-100 text-blue-700',
 };
 

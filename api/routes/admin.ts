@@ -113,12 +113,29 @@ router.post('/users/:id/freeze', (req: AuthRequest, res) => {
 });
 
 router.get('/complaints', (req, res) => {
-  const { page = 1, pageSize = 20, status } = req.query;
+  const { page = 1, pageSize = 20, status, type, keyword } = req.query;
 
   let complaints = [...db.complaints];
 
   if (status) {
     complaints = complaints.filter(c => c.status === status);
+  }
+
+  if (type) {
+    complaints = complaints.filter(c => c.type === type);
+  }
+
+  if (keyword) {
+    const kw = (keyword as string).toLowerCase();
+    complaints = complaints.filter(c => {
+      const reporter = db.users.find(u => u.id === c.reporterId);
+      const reportedUser = db.users.find(u => u.id === c.reportedUserId);
+      return (
+        reporter?.username.toLowerCase().includes(kw) ||
+        reportedUser?.username.toLowerCase().includes(kw) ||
+        c.description.toLowerCase().includes(kw)
+      );
+    });
   }
 
   complaints.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -127,7 +144,41 @@ router.get('/complaints', (req, res) => {
     const reporter = db.users.find(u => u.id === c.reporterId);
     const reportedUser = db.users.find(u => u.id === c.reportedUserId);
     const item = db.items.find(i => i.id === c.itemId);
-    return { ...c, reporter, reportedUser, item };
+
+    let relatedExchange: any = null;
+    let relatedGiftRequest: any = null;
+    if (c.itemId) {
+      relatedExchange = db.exchanges
+        .filter(e => e.itemId === c.itemId && (e.requesterId === c.reporterId || e.ownerId === c.reporterId))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+      if (relatedExchange) {
+        relatedExchange = {
+          ...relatedExchange,
+          requester: db.users.find(u => u.id === relatedExchange.requesterId),
+          owner: db.users.find(u => u.id === relatedExchange.ownerId),
+          timeline: db.timelineEvents
+            .filter(e => (e as any).exchangeId === relatedExchange.id)
+            .map(e => ({ ...e, operator: db.users.find(u => u.id === e.operatorId) }))
+            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+        };
+      }
+      relatedGiftRequest = db.giftRequests
+        .filter(r => r.itemId === c.itemId && r.requesterId === c.reporterId)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+      if (relatedGiftRequest) {
+        relatedGiftRequest = {
+          ...relatedGiftRequest,
+          requester: db.users.find(u => u.id === relatedGiftRequest.requesterId),
+          item: db.items.find(i => i.id === relatedGiftRequest.itemId),
+          timeline: db.timelineEvents
+            .filter(e => (e as any).giftRequestId === relatedGiftRequest.id)
+            .map(e => ({ ...e, operator: db.users.find(u => u.id === e.operatorId) }))
+            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+        };
+      }
+    }
+
+    return { ...c, reporter, reportedUser, item, relatedExchange, relatedGiftRequest };
   });
 
   const total = complaints.length;

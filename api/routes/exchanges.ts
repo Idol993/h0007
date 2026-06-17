@@ -7,6 +7,8 @@ import type {
   ReviewRequest,
   NegotiateRequest,
   Message as MessageType,
+  TimelineEvent,
+  Review,
 } from '../../../shared/types';
 
 const router = Router();
@@ -23,6 +25,33 @@ const addMessage = (userId: number, type: string, title: string, content: string
     createdAt: new Date().toISOString(),
   };
   db.messages.unshift(msg);
+};
+
+const addTimeline = (
+  exchangeId: number,
+  type: TimelineEvent['type'],
+  operatorId: number,
+  extra: Partial<TimelineEvent> = {}
+) => {
+  const event: TimelineEvent = {
+    id: db.nextTimelineEventId++,
+    type,
+    operatorId,
+    createdAt: new Date().toISOString(),
+    ...extra,
+  };
+  db.timelineEvents.push(event);
+  return event;
+};
+
+const buildTimelineWithUsers = (exchangeId: number): TimelineEvent[] => {
+  return db.timelineEvents
+    .filter(e =>
+      e.type.startsWith('exchange_') &&
+      (e as any).exchangeId === exchangeId
+    )
+    .map(e => ({ ...e }))
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 };
 
 router.get('/', authMiddleware, (req: AuthRequest, res) => {
@@ -43,11 +72,19 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
     const item = db.items.find(i => i.id === exchange.itemId);
     const requester = db.users.find(u => u.id === exchange.requesterId);
     const owner = db.users.find(u => u.id === exchange.ownerId);
+    const timeline = db.timelineEvents
+      .filter(e => (e as any).exchangeId === exchange.id)
+      .map(e => ({
+        ...e,
+        operator: db.users.find(u => u.id === e.operatorId),
+      }))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     return {
       ...exchange,
       item,
       requester: requester ? { ...requester } : undefined,
       owner: owner ? { ...owner } : undefined,
+      timeline,
     };
   });
 
@@ -98,6 +135,8 @@ router.post('/', authMiddleware, (req: AuthRequest, res) => {
 
   db.exchanges.unshift(exchange);
 
+  addTimeline(id, 'exchange_created', userId, { content: message, exchangeId: id } as any);
+
   addMessage(
     item.ownerId,
     'exchange',
@@ -132,6 +171,8 @@ router.post('/:id/confirm', authMiddleware, (req: AuthRequest, res) => {
   exchange.status = 'confirmed';
   exchange.confirmedAt = new Date().toISOString();
 
+  addTimeline(id, 'exchange_confirmed', userId, { exchangeId: id } as any);
+
   addMessage(
     exchange.requesterId,
     'exchange',
@@ -165,6 +206,8 @@ router.post('/:id/reject', authMiddleware, (req: AuthRequest, res) => {
 
   exchange.status = 'rejected';
 
+  addTimeline(id, 'exchange_rejected', userId, { exchangeId: id } as any);
+
   addMessage(
     exchange.requesterId,
     'exchange',
@@ -192,23 +235,47 @@ router.post('/:id/negotiate', authMiddleware, (req: AuthRequest, res) => {
     return;
   }
 
-  if (exchange.status !== 'confirmed') {
-    res.status(400).json({ error: '只有已确认的交换才能协商见面' });
+  if (exchange.status !== 'confirmed' && exchange.status !== 'negotiating') {
+    res.status(400).json({ error: '只有已确认或协商中的交换才能更新见面信息' });
     return;
   }
+
+  if (exchange.status === 'completed') {
+    res.status(400).json({ error: '交换已完成，无法再改约' });
+    return;
+  }
+
+  const oldMeetTime = exchange.meetTime;
+  const oldMeetLocation = exchange.meetLocation;
 
   exchange.meetTime = meetTime;
   exchange.meetLocation = meetLocation;
   exchange.status = 'negotiating';
 
+  addTimeline(id, 'exchange_negotiated', userId, {
+    oldMeetTime,
+    oldMeetLocation,
+    newMeetTime: meetTime,
+    newMeetLocation: meetLocation,
+    exchangeId: id,
+  } as any);
+
   const otherUserId = exchange.requesterId === userId ? exchange.ownerId : exchange.requesterId;
-  addMessage(
-    otherUserId,
-    'exchange',
-    '见面信息已更新',
-    `交换见面时间：${meetTime}，地点：${meetLocation}`,
-    id
-  );
+  const operatorName = db.users.find(u => u.id === userId)?.username || '对方';
+
+  let msgContent = `${operatorName}更新了见面约定：\n`;
+  if (oldMeetTime && oldMeetTime !== meetTime) {
+    msgContent += `时间：${oldMeetTime} → ${meetTime}\n`;
+  } else if (!oldMeetTime) {
+    msgContent += `时间：${meetTime}\n`;
+  }
+  if (oldMeetLocation && oldMeetLocation !== meetLocation) {
+    msgContent += `地点：${oldMeetLocation} → ${meetLocation}`;
+  } else if (!oldMeetLocation) {
+    msgContent += `地点：${meetLocation}`;
+  }
+
+  addMessage(otherUserId, 'exchange', '见面信息已更新', msgContent, id);
 
   res.json(exchange);
 });
@@ -239,6 +306,9 @@ router.post('/:id/complete', authMiddleware, (req: AuthRequest, res) => {
     exchange.ownerCompleted = true;
   }
 
+  const operatorName = db.users.find(u => u.id === userId)?.username || '对方';
+  const otherUserId = exchange.requesterId === userId ? exchange.ownerId : exchange.requesterId;
+
   const bothConfirmed = exchange.requesterCompleted && exchange.ownerCompleted;
 
   if (bothConfirmed) {
@@ -250,29 +320,13 @@ router.post('/:id/complete', authMiddleware, (req: AuthRequest, res) => {
       item.status = 'exchanged';
     }
 
-    addMessage(
-      exchange.requesterId,
-      'review',
-      '交换已完成',
-      '请为对方进行信用评价。',
-      id
-    );
-    addMessage(
-      exchange.ownerId,
-      'review',
-      '交换已完成',
-      '请为对方进行信用评价。',
-      id
-    );
+    addTimeline(id, 'exchange_completed_both', userId, { exchangeId: id } as any);
+
+    addMessage(exchange.requesterId, 'review', '交换已完成', '请为对方进行信用评价。', id);
+    addMessage(exchange.ownerId, 'review', '交换已完成', '请为对方进行信用评价。', id);
   } else {
-    const otherUserId = exchange.requesterId === userId ? exchange.ownerId : exchange.requesterId;
-    addMessage(
-      otherUserId,
-      'exchange',
-      '对方已确认完成交换',
-      '请确认完成并进行信用评价。',
-      id
-    );
+    addTimeline(id, 'exchange_completed_one', userId, { exchangeId: id } as any);
+    addMessage(otherUserId, 'exchange', '对方已确认完成交换', `${operatorName}已确认完成交换，请您也确认并评价。`, id);
   }
 
   res.json(exchange);
@@ -281,7 +335,7 @@ router.post('/:id/complete', authMiddleware, (req: AuthRequest, res) => {
 router.post('/:id/review', authMiddleware, (req: AuthRequest, res) => {
   const id = parseInt(req.params.id);
   const userId = req.userId!;
-  const { rating, comment } = req.body as ReviewRequest;
+  const { rating, tags, comment } = req.body as ReviewRequest;
 
   const exchange = db.exchanges.find(e => e.id === id);
   if (!exchange) {
@@ -294,26 +348,57 @@ router.post('/:id/review', authMiddleware, (req: AuthRequest, res) => {
     return;
   }
 
+  let toUserId: number;
+  const creditChange = (rating - 3) * 2;
+
   if (exchange.requesterId === userId) {
     exchange.requesterRating = rating;
     exchange.requesterComment = comment;
-    
-    const owner = db.users.find(u => u.id === exchange.ownerId);
-    if (owner) {
-      owner.creditScore = Math.max(0, Math.min(100, owner.creditScore + (rating - 3) * 2));
-    }
+    exchange.requesterTags = tags || [];
+    toUserId = exchange.ownerId;
   } else if (exchange.ownerId === userId) {
     exchange.ownerRating = rating;
     exchange.ownerComment = comment;
-    
-    const requester = db.users.find(u => u.id === exchange.requesterId);
-    if (requester) {
-      requester.creditScore = Math.max(0, Math.min(100, requester.creditScore + (rating - 3) * 2));
-    }
+    exchange.ownerTags = tags || [];
+    toUserId = exchange.requesterId;
   } else {
     res.status(403).json({ error: '无权限评价' });
     return;
   }
+
+  const toUser = db.users.find(u => u.id === toUserId);
+  if (toUser) {
+    toUser.creditScore = Math.max(0, Math.min(100, toUser.creditScore + creditChange));
+  }
+
+  addTimeline(id, 'exchange_reviewed', userId, {
+    rating,
+    tags: tags || [],
+    comment,
+    exchangeId: id,
+  } as any);
+
+  const review: Review = {
+    id: db.nextReviewId++,
+    fromUserId: userId,
+    toUserId,
+    exchangeId: id,
+    rating,
+    tags: tags || [],
+    comment,
+    creditChange,
+    createdAt: new Date().toISOString(),
+  };
+  db.reviews.push(review);
+
+  const fromUserName = db.users.find(u => u.id === userId)?.username || '对方';
+  addMessage(
+    toUserId,
+    'review',
+    '收到新的评价',
+    `${fromUserName}给了您 ${rating} 星评价${creditChange >= 0 ? '，信用分+' + creditChange : '，信用分' + creditChange}`,
+    id
+  );
 
   res.json(exchange);
 });
@@ -356,6 +441,7 @@ router.post('/:id/no-show', authMiddleware, (req: AuthRequest, res) => {
   }
 
   exchange.status = 'no_show';
+  addTimeline(id, 'exchange_no_show', userId, { exchangeId: id } as any);
 
   res.json({ success: true });
 });

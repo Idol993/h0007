@@ -8,7 +8,22 @@ export type ItemStatus = 'active' | 'exchanged' | 'gifted' | 'removed';
 
 export type ExchangeStatus = 'pending' | 'confirmed' | 'rejected' | 'negotiating' | 'completed' | 'cancelled' | 'no_show';
 
-export type GiftRequestStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed';
+export type GiftRequestStatus = 'pending' | 'confirmed' | 'cancelled' | 'expired' | 'completed';
+
+export type TimelineEventType =
+  | 'exchange_created'
+  | 'exchange_confirmed'
+  | 'exchange_rejected'
+  | 'exchange_negotiated'
+  | 'exchange_completed_one'
+  | 'exchange_completed_both'
+  | 'exchange_reviewed'
+  | 'exchange_no_show'
+  | 'gift_created'
+  | 'gift_confirmed'
+  | 'gift_cancelled'
+  | 'gift_expired'
+  | 'gift_completed';
 
 export type MessageType = 'system' | 'exchange' | 'gift' | 'review';
 
@@ -49,6 +64,36 @@ export interface Item {
   updatedAt: string;
 }
 
+export interface TimelineEvent {
+  id: number;
+  type: TimelineEventType;
+  operatorId: number;
+  operator?: User;
+  content?: string;
+  oldMeetTime?: string;
+  oldMeetLocation?: string;
+  newMeetTime?: string;
+  newMeetLocation?: string;
+  rating?: number;
+  tags?: string[];
+  comment?: string;
+  createdAt: string;
+}
+
+export interface Review {
+  id: number;
+  fromUserId: number;
+  fromUser?: User;
+  toUserId: number;
+  exchangeId?: number;
+  giftRequestId?: number;
+  rating: number;
+  tags: string[];
+  comment?: string;
+  creditChange: number;
+  createdAt: string;
+}
+
 export interface Exchange {
   id: number;
   itemId: number;
@@ -66,8 +111,11 @@ export interface Exchange {
   ownerCompleted?: boolean;
   requesterRating?: number;
   requesterComment?: string;
+  requesterTags?: string[];
   ownerRating?: number;
   ownerComment?: string;
+  ownerTags?: string[];
+  timeline?: TimelineEvent[];
   createdAt: string;
   confirmedAt?: string;
   completedAt?: string;
@@ -82,6 +130,7 @@ export interface GiftRequest {
   status: GiftRequestStatus;
   pickupCode?: string;
   message?: string;
+  timeline?: TimelineEvent[];
   createdAt: string;
   confirmedAt?: string;
 }
@@ -183,6 +232,7 @@ export interface CreateGiftRequest {
 
 export interface ReviewRequest {
   rating: number;
+  tags?: string[];
   comment?: string;
 }
 

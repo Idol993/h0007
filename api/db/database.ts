@@ -7,6 +7,8 @@ import type {
   Message,
   Favorite,
   Complaint,
+  TimelineEvent,
+  Review,
   ItemType,
   ItemCondition,
 } from '../../shared/types';
@@ -39,6 +41,8 @@ export interface Database {
   messages: Message[];
   favorites: Favorite[];
   complaints: Complaint[];
+  timelineEvents: TimelineEvent[];
+  reviews: Review[];
   nextUserId: number;
   nextItemId: number;
   nextExchangeId: number;
@@ -46,6 +50,8 @@ export interface Database {
   nextMessageId: number;
   nextFavoriteId: number;
   nextComplaintId: number;
+  nextTimelineEventId: number;
+  nextReviewId: number;
 }
 
 const now = new Date().toISOString();
@@ -264,6 +270,9 @@ const complaints: Complaint[] = [
   },
 ];
 
+const timelineEvents: TimelineEvent[] = [];
+const reviews: Review[] = [];
+
 export const db: Database = {
   users: users.map(u => ({ ...u, password: undefined } as User & { password?: string })),
   items,
@@ -272,6 +281,8 @@ export const db: Database = {
   messages,
   favorites,
   complaints,
+  timelineEvents,
+  reviews,
   nextUserId: users.length + 1,
   nextItemId: items.length + 1,
   nextExchangeId: exchanges.length + 1,
@@ -279,6 +290,8 @@ export const db: Database = {
   nextMessageId: messages.length + 1,
   nextFavoriteId: favorites.length + 1,
   nextComplaintId: complaints.length + 1,
+  nextTimelineEventId: 1,
+  nextReviewId: 1,
 };
 
 export const passwordMap: Record<number, string> = {

@@ -5,7 +5,7 @@ import Toast from '@/components/Toast';
 import ItemCard from '@/components/ItemCard';
 import { usersAPI, exchangesAPI, giftsAPI } from '@/api';
 import { useAuthStore, useUIStore } from '@/store';
-import type { User, Item, Exchange, GiftRequest } from '../../shared/types';
+import type { User, Item, Exchange, GiftRequest, TimelineEvent } from '../../shared/types';
 import {
   User as UserIcon,
   Package,
@@ -23,8 +23,56 @@ import {
   CheckCircle,
   Clock,
   MessageSquare,
+  FileText,
+  CheckSquare,
+  ThumbsUp,
+  ThumbsDown,
+  ArrowRight,
+  Eye,
 } from 'lucide-react';
 import { exchangeStatusLabel, exchangeStatusColor, timeAgo, giftStatusLabel, giftStatusColor } from '@/utils';
+
+const REVIEW_TAGS = [
+  '守时',
+  '物品描述真实',
+  '沟通顺畅',
+  '态度友好',
+  '包装完好',
+  '值得信赖',
+  '需要改进',
+];
+
+const timelineIconMap: Record<string, any> = {
+  exchange_created: RefreshCw,
+  exchange_confirmed: CheckCircle,
+  exchange_rejected: X,
+  exchange_negotiated: MessageSquare,
+  exchange_completed_one: Clock,
+  exchange_completed_both: CheckSquare,
+  exchange_reviewed: Star,
+  exchange_no_show: AlertTriangle,
+  gift_created: Gift,
+  gift_confirmed: CheckCircle,
+  gift_cancelled: X,
+  gift_expired: AlertTriangle,
+  gift_completed: CheckSquare,
+};
+
+const timelineLabelMap: Record<string, string> = {
+  exchange_created: '发起交换申请',
+  exchange_confirmed: '物主确认交换',
+  exchange_rejected: '物主拒绝交换',
+  exchange_negotiated: '更新见面约定',
+  exchange_completed_one: '一方确认完成',
+  exchange_completed_both: '双方确认完成',
+  exchange_reviewed: '提交信用评价',
+  exchange_no_show: '标记放鸽子',
+  gift_created: '提交领取申请',
+  gift_confirmed: '物主确认赠送',
+  gift_cancelled: '申请人取消',
+  gift_expired: '申请已失效',
+  gift_completed: '领取完成',
+};
 
 const Profile = () => {
   const navigate = useNavigate();
@@ -46,7 +94,13 @@ const Profile = () => {
   const [negotiateLocation, setNegotiateLocation] = useState('');
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
+  const [reviewTags, setReviewTags] = useState<string[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [timelineExchange, setTimelineExchange] = useState<Exchange | null>(null);
+  const [timelineGift, setTimelineGift] = useState<GiftRequest | null>(null);
+  const [userReviews, setUserReviews] = useState<{ list: any[]; total: number; avgRating: number } | null>(null);
+  const [reviewGift, setReviewGift] = useState<GiftRequest | null>(null);
 
   const isOwnProfile = !id || (currentUser && currentUser.id === parseInt(id));
   const userId = id ? parseInt(id) : currentUser?.id;
@@ -58,6 +112,7 @@ const Profile = () => {
     }
     if (userId) {
       fetchProfile();
+      fetchReviews();
     }
   }, [userId, isAuthenticated, navigate, id]);
 
@@ -76,6 +131,13 @@ const Profile = () => {
       fetchFavorites();
     }
   }, [userId, activeTab, isOwnProfile, subAction]);
+
+  const fetchReviews = async () => {
+    try {
+      const data = await usersAPI.getUserReviews(userId!);
+      setUserReviews(data);
+    } catch {}
+  };
 
   const fetchGiftRequests = async () => {
     try {
@@ -170,9 +232,17 @@ const Profile = () => {
 
   const openReviewModal = (exchange: Exchange) => {
     setSelectedExchange(exchange);
+    setReviewGift(null);
     setReviewRating(5);
     setReviewComment('');
+    setReviewTags([]);
     setShowReviewModal(true);
+  };
+
+  const toggleTag = (tag: string) => {
+    setReviewTags(prev =>
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+    );
   };
 
   const handleReview = async () => {
@@ -181,16 +251,104 @@ const Profile = () => {
     try {
       await exchangesAPI.review(selectedExchange.id, {
         rating: reviewRating,
+        tags: reviewTags,
         comment: reviewComment,
       });
       showToastMessage('评价成功', 'success');
       setShowReviewModal(false);
       fetchExchanges();
+      fetchReviews();
     } catch (err: any) {
       showToastMessage(err.message || '操作失败', 'error');
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const openTimelineExchange = (exchange: Exchange) => {
+    setTimelineExchange(exchange);
+    setTimelineGift(null);
+    setShowTimeline(true);
+  };
+
+  const openTimelineGift = (gift: GiftRequest) => {
+    setTimelineGift(gift);
+    setTimelineExchange(null);
+    setShowTimeline(true);
+  };
+
+  const renderTimelineItem = (event: TimelineEvent, isLast: boolean) => {
+    const Icon = timelineIconMap[event.type] || FileText;
+    const label = timelineLabelMap[event.type] || '操作';
+    const operatorName = (event as any).operator?.username || '系统';
+
+    return (
+      <div key={event.id} className="relative pl-8 pb-5">
+        {!isLast && (
+          <div className="absolute left-[13px] top-8 bottom-0 w-0.5 bg-gray-200" />
+        )}
+        <div className="absolute left-0 top-1 w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center">
+          <Icon className="w-3.5 h-3.5 text-primary-600" />
+        </div>
+        <div className="bg-gray-50 rounded-lg p-3 ml-1">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-medium text-sm text-gray-900">{label}</span>
+            <span className="text-xs text-gray-400">{timeAgo(event.createdAt)}</span>
+          </div>
+          <div className="text-xs text-gray-500 mb-1">操作人：{operatorName}</div>
+          {event.type === 'exchange_created' && event.content && (
+            <div className="text-sm text-gray-600 bg-white rounded p-2 mt-1">申请留言：{event.content}</div>
+          )}
+          {event.type === 'exchange_negotiated' && (
+            <div className="mt-1 space-y-1 text-sm">
+              {event.oldMeetTime !== event.newMeetTime && (
+                <div className="flex items-center text-gray-600">
+                  <Clock className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                  {event.oldMeetTime && <span className="text-gray-400 line-through mr-1">{event.oldMeetTime}</span>}
+                  {event.oldMeetTime && <ArrowRight className="w-3 h-3 mx-1 text-gray-400" />}
+                  <span className="text-primary-600 font-medium">{event.newMeetTime}</span>
+                </div>
+              )}
+              {event.oldMeetLocation !== event.newMeetLocation && (
+                <div className="flex items-center text-gray-600">
+                  <MapPin className="w-3.5 h-3.5 mr-1 text-gray-400" />
+                  {event.oldMeetLocation && <span className="text-gray-400 line-through mr-1">{event.oldMeetLocation}</span>}
+                  {event.oldMeetLocation && <ArrowRight className="w-3 h-3 mx-1 text-gray-400" />}
+                  <span className="text-primary-600 font-medium">{event.newMeetLocation}</span>
+                </div>
+              )}
+            </div>
+          )}
+          {event.type === 'exchange_reviewed' && (
+            <div className="mt-1 space-y-1">
+              <div className="flex items-center text-yellow-500 text-sm">
+                {'★'.repeat(event.rating || 0)}
+                <span className="text-gray-400 ml-2">{'★'.repeat(5 - (event.rating || 0))}</span>
+              </div>
+              {event.tags && event.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {event.tags.map((t: string) => (
+                    <span key={t} className="text-xs bg-primary-50 text-primary-600 px-2 py-0.5 rounded-full">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {event.comment && <p className="text-sm text-gray-600 bg-white rounded p-2 mt-1">{event.comment}</p>}
+            </div>
+          )}
+          {event.type === 'gift_confirmed' && event.content && (
+            <div className="text-sm text-green-600 font-medium bg-green-50 rounded p-2 mt-1">{event.content}</div>
+          )}
+          {event.type === 'gift_expired' && event.content && (
+            <div className="text-sm text-red-600 bg-red-50 rounded p-2 mt-1">{event.content}</div>
+          )}
+          {event.type === 'gift_created' && event.content && (
+            <div className="text-sm text-gray-600 bg-white rounded p-2 mt-1">申请留言：{event.content}</div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   const handleConfirmGift = async (request: GiftRequest) => {
@@ -231,10 +389,11 @@ const Profile = () => {
     { icon: Package, label: '我的发布', value: 'items', count: profileUser?.itemCount || 0 },
     { icon: RefreshCw, label: '交换记录', value: 'exchanges', count: profileUser?.exchangeCount || 0 },
     { icon: Heart, label: '我的收藏', value: 'favorites' },
+    { icon: Star, label: '信用评价', value: 'reviews', count: userReviews?.total || 0 },
     { icon: Settings, label: '账号设置', value: 'settings' },
   ] : [
     { icon: Package, label: 'TA的发布', value: 'items', count: profileUser?.itemCount || 0 },
-    { icon: RefreshCw, label: '交换记录', value: 'exchanges', count: profileUser?.exchangeCount || 0 },
+    { icon: Star, label: 'TA的评价', value: 'reviews', count: userReviews?.total || 0 },
   ];
 
   return (
@@ -487,6 +646,13 @@ const Profile = () => {
                                       已评价：{'★'.repeat(myRating)}
                                     </span>
                                   )}
+                                  <button
+                                    onClick={() => openTimelineExchange(exchange)}
+                                    className="px-3 py-1.5 bg-gray-50 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors flex items-center"
+                                  >
+                                    <Clock className="w-4 h-4 mr-1" />
+                                    履约时间线
+                                  </button>
                                 </div>
                               </div>
                             );
@@ -546,13 +712,31 @@ const Profile = () => {
                                   </div>
                                 )}
                                 {isOwner && request.status === 'pending' && (
-                                  <div className="mt-4">
+                                  <div className="mt-4 flex flex-wrap gap-2">
                                     <button
                                       onClick={() => handleConfirmGift(request)}
                                       disabled={actionLoading}
                                       className="px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-medium hover:bg-primary-600 transition-colors"
                                     >
                                       确认赠送，生成领取码
+                                    </button>
+                                    <button
+                                      onClick={() => openTimelineGift(request)}
+                                      className="px-3 py-2 bg-gray-50 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors flex items-center"
+                                    >
+                                      <Clock className="w-4 h-4 mr-1" />
+                                      履约时间线
+                                    </button>
+                                  </div>
+                                )}
+                                {!(isOwner && request.status === 'pending') && (
+                                  <div className="mt-4">
+                                    <button
+                                      onClick={() => openTimelineGift(request)}
+                                      className="px-3 py-2 bg-gray-50 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors flex items-center"
+                                    >
+                                      <Clock className="w-4 h-4 mr-1" />
+                                      履约时间线
                                     </button>
                                   </div>
                                 )}
@@ -587,6 +771,80 @@ const Profile = () => {
                     </div>
                   )}
                 </>
+              )}
+
+              {activeTab === 'reviews' && (
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center space-x-4">
+                      <div className="text-3xl font-bold text-gray-900">
+                        {userReviews?.avgRating || 0}
+                      </div>
+                      <div>
+                        <div className="flex text-yellow-400 text-lg">
+                          {'★'.repeat(Math.round(userReviews?.avgRating || 0))}
+                          <span className="text-gray-300">
+                            {'★'.repeat(5 - Math.round(userReviews?.avgRating || 0))}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-500">
+                          共 {userReviews?.total || 0} 条评价
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  {!userReviews?.list || userReviews.list.length === 0 ? (
+                    <div className="text-center py-12">
+                      <div className="text-5xl mb-3">⭐</div>
+                      <p className="text-gray-500">暂无评价</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {userReviews.list.map((review: any) => (
+                        <div key={review.id} className="border border-gray-100 rounded-xl p-4">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex items-center space-x-3">
+                              <img
+                                src={review.fromUser?.avatar}
+                                alt=""
+                                className="w-9 h-9 rounded-full bg-gray-100"
+                              />
+                              <div>
+                                <p className="font-medium text-gray-900">{review.fromUser?.username}</p>
+                                <div className="flex items-center text-xs text-gray-400 space-x-2">
+                                  <span className="text-yellow-500">
+                                    {'★'.repeat(review.rating)}
+                                  </span>
+                                  <span>{timeAgo(review.createdAt)}</span>
+                                  {review.creditChange !== 0 && (
+                                    <span className={review.creditChange > 0 ? 'text-green-600' : 'text-red-600'}>
+                                      信用{review.creditChange > 0 ? '+' : ''}{review.creditChange}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          {review.tags && review.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mb-2">
+                              {review.tags.map((tag: string) => (
+                                <span
+                                  key={tag}
+                                  className="text-xs bg-primary-50 text-primary-600 px-2.5 py-1 rounded-full"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {review.comment && (
+                            <p className="text-sm text-gray-600">{review.comment}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
 
               {activeTab === 'settings' && (
@@ -703,6 +961,26 @@ const Profile = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
+                  选择标签（可多选）
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {REVIEW_TAGS.map((tag) => (
+                    <button
+                      key={tag}
+                      onClick={() => toggleTag(tag)}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                        reviewTags.includes(tag)
+                          ? 'bg-primary-500 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   评价内容（选填）
                 </label>
                 <textarea
@@ -727,6 +1005,48 @@ const Profile = () => {
                 className="px-5 py-2.5 bg-primary-500 hover:bg-primary-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50"
               >
                 {actionLoading ? '提交中...' : '提交评价'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTimeline && (timelineExchange || timelineGift) && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">
+                {timelineExchange ? '交换履约时间线' : '赠送领取时间线'}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowTimeline(false);
+                  setTimelineExchange(null);
+                  setTimelineGift(null);
+                }}
+                className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              {(timelineExchange?.timeline?.length === 0 || timelineGift?.timeline?.length === 0) && (
+                <div className="text-center py-8 text-gray-400 text-sm">暂无时间线记录</div>
+              )}
+              {(timelineExchange?.timeline || timelineGift?.timeline || []).map((event, idx, arr) =>
+                renderTimelineItem(event as any, idx === arr.length - 1)
+              )}
+            </div>
+            <div className="p-6 border-t border-gray-100 flex justify-end">
+              <button
+                onClick={() => {
+                  setShowTimeline(false);
+                  setTimelineExchange(null);
+                  setTimelineGift(null);
+                }}
+                className="px-5 py-2.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-xl font-medium transition-colors"
+              >
+                关闭
               </button>
             </div>
           </div>

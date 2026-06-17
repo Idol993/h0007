@@ -69,4 +69,28 @@ router.get('/:id/credit', (req, res) => {
   });
 });
 
+router.get('/:id/reviews', (req, res) => {
+  const id = parseInt(req.params.id);
+
+  const reviews = db.reviews
+    .filter(r => r.toUserId === id)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 20)
+    .map(r => ({
+      ...r,
+      fromUser: db.users.find(u => u.id === r.fromUserId),
+    }));
+
+  const totalReviews = db.reviews.filter(r => r.toUserId === id).length;
+  const avgRating = totalReviews > 0
+    ? reviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews
+    : 0;
+
+  res.json({
+    list: reviews,
+    total: totalReviews,
+    avgRating: Math.round(avgRating * 10) / 10,
+  });
+});
+
 export default router;

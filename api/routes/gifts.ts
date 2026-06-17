@@ -1,14 +1,24 @@
 import { Router } from 'express';
 import { db } from '../db/database';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
-import { generatePickupCode } from '../utils';
 import type {
   GiftRequest,
   CreateGiftRequest,
+  Item,
   Message as MessageType,
+  TimelineEvent,
 } from '../../../shared/types';
 
 const router = Router();
+
+const generatePickupCode = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+};
 
 const addMessage = (userId: number, type: string, title: string, content: string, relatedId?: number) => {
   const msg: MessageType = {
@@ -22,6 +32,24 @@ const addMessage = (userId: number, type: string, title: string, content: string
     createdAt: new Date().toISOString(),
   };
   db.messages.unshift(msg);
+};
+
+const addGiftTimeline = (
+  giftRequestId: number,
+  type: TimelineEvent['type'],
+  operatorId: number,
+  extra: Partial<TimelineEvent> = {}
+) => {
+  const event: TimelineEvent = {
+    id: db.nextTimelineEventId++,
+    type,
+    operatorId,
+    createdAt: new Date().toISOString(),
+    ...extra,
+  };
+  (event as any).giftRequestId = giftRequestId;
+  db.timelineEvents.push(event);
+  return event;
 };
 
 router.get('/requests', authMiddleware, (req: AuthRequest, res) => {
@@ -42,17 +70,25 @@ router.get('/requests', authMiddleware, (req: AuthRequest, res) => {
   const requestsWithDetails = requests.map(request => {
     const item = db.items.find(i => i.id === request.itemId);
     const requester = db.users.find(u => u.id === request.requesterId);
+    const timeline = db.timelineEvents
+      .filter(e => (e as any).giftRequestId === request.id)
+      .map(e => ({
+        ...e,
+        operator: db.users.find(u => u.id === e.operatorId),
+      }))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     return {
       ...request,
-      item,
+      item: item ? { ...item, owner: db.users.find(u => u.id === item.ownerId) } : undefined,
       requester: requester ? { ...requester } : undefined,
+      timeline,
     };
   });
 
   res.json(requestsWithDetails);
 });
 
-router.post('/request', authMiddleware, (req: AuthRequest, res) => {
+router.post('/requests', authMiddleware, (req: AuthRequest, res) => {
   const userId = req.userId!;
   const { itemId, message } = req.body as CreateGiftRequest;
 
@@ -67,173 +103,174 @@ router.post('/request', authMiddleware, (req: AuthRequest, res) => {
     return;
   }
 
+  if (item.status !== 'active') {
+    res.status(400).json({ error: '该物品已被赠送或下架' });
+    return;
+  }
+
   if (item.ownerId === userId) {
     res.status(400).json({ error: '不能领取自己的物品' });
     return;
   }
 
-  if (item.status !== 'active') {
-    res.status(400).json({ error: '该物品已被领取或下架' });
+  const existingRequest = db.giftRequests.find(
+    r => r.itemId === itemId && r.requesterId === userId && (r.status === 'pending' || r.status === 'confirmed')
+  );
+  if (existingRequest) {
+    res.status(400).json({ error: '您已申请过领取，请等待物主回复' });
     return;
   }
 
-  const existingRequest = db.giftRequests.find(
-    r => r.itemId === itemId && r.requesterId === userId && r.status === 'pending'
+  const confirmedRequestExists = db.giftRequests.find(
+    r => r.itemId === itemId && r.status === 'confirmed'
   );
-  if (existingRequest) {
-    res.status(400).json({ error: '您已申请领取，请等待物主确认' });
+  if (confirmedRequestExists) {
+    res.status(400).json({ error: '该物品已有申请人被确认，暂时无法领取' });
     return;
   }
 
   const id = db.nextGiftRequestId++;
-  const now = new Date().toISOString();
-
-  const giftRequest: GiftRequest = {
+  const request: GiftRequest = {
     id,
     itemId,
     requesterId: userId,
     status: 'pending',
     message,
-    createdAt: now,
+    createdAt: new Date().toISOString(),
   };
 
-  db.giftRequests.unshift(giftRequest);
+  db.giftRequests.unshift(request);
+  addGiftTimeline(id, 'gift_created', userId, { content: message });
 
   addMessage(
     item.ownerId,
     'gift',
-    '收到新的领取请求',
+    '收到新的领取申请',
     `有人申请领取您的「${item.title}」，请尽快处理。`,
     id
   );
 
-  res.status(201).json(giftRequest);
-});
-
-router.get('/requests/my', authMiddleware, (req: AuthRequest, res) => {
-  const userId = req.userId!;
-
-  const requests = db.giftRequests.filter(r => r.requesterId === userId);
-  requests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-  const requestsWithDetails = requests.map(request => {
-    const item = db.items.find(i => i.id === request.itemId);
-    return {
-      ...request,
-      item,
-    };
-  });
-
-  res.json(requestsWithDetails);
+  res.status(201).json(request);
 });
 
 router.post('/requests/:id/confirm', authMiddleware, (req: AuthRequest, res) => {
   const id = parseInt(req.params.id);
   const userId = req.userId!;
 
-  const giftRequest = db.giftRequests.find(r => r.id === id);
-  if (!giftRequest) {
-    res.status(404).json({ error: '领取请求不存在' });
+  const request = db.giftRequests.find(r => r.id === id);
+  if (!request) {
+    res.status(404).json({ error: '领取申请不存在' });
     return;
   }
 
-  const item = db.items.find(i => i.id === giftRequest.itemId);
+  const item = db.items.find(i => i.id === request.itemId);
   if (!item) {
-    res.status(404).json({ error: '物品不存在' });
+    res.status(404).json({ error: '关联物品不存在' });
     return;
   }
 
   if (item.ownerId !== userId) {
-    res.status(403).json({ error: '只有物主才能确认领取' });
+    res.status(403).json({ error: '只有物主才能确认领取申请' });
     return;
   }
 
-  if (giftRequest.status !== 'pending') {
-    res.status(400).json({ error: '该请求状态无法确认' });
+  if (request.status !== 'pending') {
+    res.status(400).json({ error: '该申请状态无法确认' });
     return;
   }
 
-  if (item.status !== 'active') {
-    res.status(400).json({ error: '该物品已被领取或下架' });
-    return;
-  }
+  request.status = 'confirmed';
+  request.confirmedAt = new Date().toISOString();
+  request.pickupCode = generatePickupCode();
 
-  const pickupCode = generatePickupCode();
-  giftRequest.status = 'confirmed';
-  giftRequest.pickupCode = pickupCode;
-  giftRequest.confirmedAt = new Date().toISOString();
+  addGiftTimeline(id, 'gift_confirmed', userId, { content: `领取码：${request.pickupCode}` });
 
-  item.status = 'gifted';
-
-  db.giftRequests
-    .filter(r => r.itemId === giftRequest.itemId && r.id !== giftRequest.id && r.status === 'pending')
-    .forEach(r => {
-      r.status = 'cancelled';
-      addMessage(
-        r.requesterId,
-        'gift',
-        '很遗憾，物品已被他人领取',
-        `您申请的「${item.title}」已被其他邻居领取。`,
-        r.id
-      );
-    });
+  const otherRequests = db.giftRequests.filter(
+    r => r.itemId === request.itemId && r.id !== id && r.status === 'pending'
+  );
+  otherRequests.forEach(r => {
+    r.status = 'expired';
+    addGiftTimeline(r.id, 'gift_expired', userId, { content: '物主已确认其他申请人' });
+    addMessage(
+      r.requesterId,
+      'gift',
+      '领取申请已失效',
+      `很遗憾，「${item.title}」的物主已确认其他申请人。`,
+      r.id
+    );
+  });
 
   addMessage(
-    giftRequest.requesterId,
+    request.requesterId,
     'gift',
-    '恭喜！您获得了该物品',
-    `领取码：${pickupCode}，请凭码到指定地点领取。`,
+    '领取申请已确认',
+    `恭喜！您获得了「${item.title}」，领取码：${request.pickupCode}，请凭码到约定地点领取。`,
     id
   );
 
-  res.json({ pickupCode, giftRequest });
+  res.json({
+    ...request,
+    item,
+    pickupCode: request.pickupCode,
+  });
 });
 
 router.post('/requests/:id/cancel', authMiddleware, (req: AuthRequest, res) => {
   const id = parseInt(req.params.id);
   const userId = req.userId!;
 
-  const giftRequest = db.giftRequests.find(r => r.id === id);
-  if (!giftRequest) {
-    res.status(404).json({ error: '领取请求不存在' });
+  const request = db.giftRequests.find(r => r.id === id);
+  if (!request) {
+    res.status(404).json({ error: '领取申请不存在' });
     return;
   }
 
-  if (giftRequest.requesterId !== userId) {
+  if (request.requesterId !== userId) {
     res.status(403).json({ error: '无权限取消' });
     return;
   }
 
-  if (giftRequest.status !== 'pending') {
-    res.status(400).json({ error: '该请求状态无法取消' });
+  if (request.status !== 'pending') {
+    res.status(400).json({ error: '该申请状态无法取消' });
     return;
   }
 
-  giftRequest.status = 'cancelled';
+  request.status = 'cancelled';
+  addGiftTimeline(id, 'gift_cancelled', userId);
 
-  res.json({ success: true });
+  res.json(request);
 });
 
-router.post('/verify', authMiddleware, (req: AuthRequest, res) => {
-  const { itemId, pickupCode } = req.body;
+router.post('/requests/:id/complete', authMiddleware, (req: AuthRequest, res) => {
+  const id = parseInt(req.params.id);
+  const userId = req.userId!;
 
-  const giftRequest = db.giftRequests.find(
-    r => r.itemId === itemId && r.pickupCode === pickupCode && r.status === 'confirmed'
-  );
-
-  if (!giftRequest) {
-    res.status(400).json({ success: false, error: '领取码无效' });
+  const request = db.giftRequests.find(r => r.id === id);
+  if (!request) {
+    res.status(404).json({ error: '领取申请不存在' });
     return;
   }
 
-  giftRequest.status = 'completed';
+  const item = db.items.find(i => i.id === request.itemId);
 
-  const item = db.items.find(i => i.id === itemId);
+  if (request.requesterId !== userId && item?.ownerId !== userId) {
+    res.status(403).json({ error: '无权限操作' });
+    return;
+  }
+
+  if (request.status !== 'confirmed') {
+    res.status(400).json({ error: '该申请状态无法完成' });
+    return;
+  }
+
+  request.status = 'completed';
+  addGiftTimeline(id, 'gift_completed', userId);
+
   if (item) {
     item.status = 'gifted';
   }
 
-  res.json({ success: true, giftRequest });
+  res.json(request);
 });
 
 export default router;
